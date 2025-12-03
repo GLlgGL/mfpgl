@@ -8,14 +8,7 @@ from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
 
 class VidGuardExtractor(BaseExtractor):
-    """
-    Compatible domains:
-        vidguard.to, vid-guard.com, vgfplay.com, vgfplay.xyz,
-        vgembed.com, vembed.net, embedv.net, v6embed.xyz,
-        go-streamer.net, fslinks.org, bembed.net, listeamed.net,
-        kinoger.pw, *.sbs
-    """
-
+    
     VALID_DOMAINS = [
         "vidguard.to", "vid-guard.com", "vgfplay.com", "vgfplay.xyz",
         "vgembed.com", "vembed.net", "embedv.net", "v6embed.xyz",
