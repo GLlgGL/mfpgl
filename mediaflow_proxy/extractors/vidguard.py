@@ -9,7 +9,6 @@ from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
 class VidGuardExtractor(BaseExtractor):
     """
-    VidGuard extractor for MediaFlow Proxy
     Compatible domains:
         vidguard.to, vid-guard.com, vgfplay.com, vgfplay.xyz,
         vgembed.com, vembed.net, embedv.net, v6embed.xyz,
@@ -29,9 +28,6 @@ class VidGuardExtractor(BaseExtractor):
         super().__init__(*args, **kwargs)
         self.mediaflow_endpoint = "hls_manifest_proxy"
 
-    # -----------------------------------------------------
-    #                   MAIN EXTRACTOR
-    # -----------------------------------------------------
     async def extract(self, url: str):
         parsed_url = urlparse(url)
 
@@ -41,7 +37,6 @@ class VidGuardExtractor(BaseExtractor):
         if not any(parsed_url.hostname.endswith(d) for d in self.VALID_DOMAINS):
             raise ExtractorError("VIDGUARD: Invalid VidGuard domain")
 
-        # Step 1: fetch the embed HTML with browser-like headers
         response = await self._make_request(
             url,
             headers={
@@ -53,8 +48,6 @@ class VidGuardExtractor(BaseExtractor):
         )
         html = response.text
 
-        # Step 2: VidGuard stores stream in AA-encoded JS inside:
-        # eval("window.ADBLOCKER=false;\n .... ;");
         js_match = re.search(
             r'eval\("window\.ADBLOCKER\s*=\s*false;\\n(.+?);"\);</script',
             html,
@@ -65,10 +58,8 @@ class VidGuardExtractor(BaseExtractor):
 
         encoded_js = self._cleanup_js(js_match.group(1))
 
-        # Step 3: decode AA encoded JavaScript
         decoded = self._aadecode(encoded_js)
 
-        # VidGuard JSON begins at offset 11 in the decoded string
         try:
             json_data = json.loads(decoded[11:])
         except Exception:
@@ -78,9 +69,8 @@ class VidGuardExtractor(BaseExtractor):
         if not streams:
             raise ExtractorError("VIDGUARD: No stream source found")
 
-        # Step 4: Pick best quality if list
         if isinstance(streams, list):
-            # Each entry = {"Label": "1080p", "URL": "https...."}
+            
             def _label_to_int(label: str) -> int:
                 try:
                     return int(label.replace("p", ""))
@@ -99,16 +89,11 @@ class VidGuardExtractor(BaseExtractor):
         if not stream_url:
             raise ExtractorError("VIDGUARD: Empty stream URL")
 
-        # Fix malformed protocol `:////` etc
         if not stream_url.startswith("http"):
             stream_url = re.sub(r":/*", "://", stream_url)
 
-        # Step 5: Decode VidGuard signature (?sig=xxxx)
         stream_url = self._decode_signature(stream_url)
 
-        # -----------------------------------------------------
-        #         RETURN MFP STRUCTURE (required format)
-        # -----------------------------------------------------
         headers = self.base_headers.copy()
         headers["referer"] = url
 
@@ -118,74 +103,54 @@ class VidGuardExtractor(BaseExtractor):
             "mediaflow_endpoint": self.mediaflow_endpoint,
         }
 
-    # -----------------------------------------------------
-    #                SIGNATURE DECODING
-    # -----------------------------------------------------
     def _decode_signature(self, url: str) -> str:
-        """
-        Supports both old hex signatures (original ResolveURL logic)
-        and new base64url-style signatures that VidGuard is using.
-        """
+        
         if "sig=" not in url:
             return url
 
         sig = url.split("sig=")[1].split("&")[0]
 
-        # Detect hex signature (old format)
         if re.fullmatch(r"[0-9a-fA-F]+", sig):
             try:
                 raw = binascii.unhexlify(sig)
             except binascii.Error:
                 raise ExtractorError("VIDGUARD: Failed hex unhexlify")
         else:
-            # New VidGuard: base64url signature
+            
             try:
                 padded = sig + "=" * (-len(sig) % 4)
                 raw = base64.urlsafe_b64decode(padded)
             except Exception:
                 raise ExtractorError("VIDGUARD: Signature is neither hex nor base64url")
 
-        # XOR by 2 (same as original ResolveURL)
         t = "".join(chr(b ^ 2) for b in raw)
 
-        # Inner base64 decode (ResolveURL: helpers.b64decode(t + '=='))
         try:
             decoded = self._b64decode(t + "==")
         except Exception:
             raise ExtractorError("VIDGUARD: Failed inner base64 decode in signature")
 
-        # decoded is bytes: drop last 5 bytes and reverse
         decoded = decoded[:-5][::-1]
 
-        # swap every 2 bytes
         byte_list = list(decoded)
         for i in range(0, len(byte_list) - 1, 2):
             byte_list[i], byte_list[i + 1] = byte_list[i + 1], byte_list[i]
 
-        # drop last 5 bytes again and turn into string
         final = "".join(chr(b) for b in byte_list[:-5])
 
         return url.replace(sig, final)
 
-    # -----------------------------------------------------
-    #                AA-DECODE (ResolveURL-style)
-    # -----------------------------------------------------
     def _aadecode(self, text: str) -> str:
-        """
-        AAdecode implementation adapted from resolveurl/lib/aadecode.py
-        with support for the alt pattern (ﾟɆﾟ) used by VidGuard.
-        """
-        # Strip whitespace and JS comments
+        
         text = re.sub(r"\s+|/\*.*?\*/", "", text)
 
-        # Try ALT pattern used by VidGuard first
         try:
             data = text.split("+(ﾟɆﾟ)[ﾟoﾟ]")[1]
             chars = data.split("+(ﾟɆﾟ)[ﾟεﾟ]+")[1:]
             char1 = "ღ"
             char2 = "(ﾟɆﾟ)[ﾟΘﾟ]"
         except Exception:
-            # Fallback to standard AAencode pattern
+            
             try:
                 data = text.split("+(ﾟДﾟ)[ﾟoﾟ]")[1]
                 chars = data.split("+(ﾟДﾟ)[ﾟεﾟ]+")[1:]
@@ -218,7 +183,7 @@ class VidGuardExtractor(BaseExtractor):
                     sub += str(eval(c))
                     c = ""
                 except Exception:
-                    # not yet a valid expression, keep accumulating
+                    
                     pass
 
             if sub:
@@ -283,9 +248,6 @@ class VidGuardExtractor(BaseExtractor):
             return chars[number]
         return self._to_string(number // base, base) + chars[number % base]
 
-    # -----------------------------------------------------
-    #                HELPERS
-    # -----------------------------------------------------
     def _cleanup_js(self, text: str) -> str:
         return (
             text.replace("\\u002b", "+")
