@@ -195,10 +195,7 @@ class VidGuardExtractor(BaseExtractor):
         return self._to_string_cases(txt_result)
 
     def _to_string_cases(self, txt: str) -> str:
-        """
-        Handle .toString(base) patterns inside AAdecoded text
-        (ported from resolveurl aadecode.toStringCases)
-        """
+        
         sum_base = ""
         m3 = False
 
