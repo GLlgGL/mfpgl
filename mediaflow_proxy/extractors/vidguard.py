@@ -113,7 +113,7 @@ class VidGuardExtractor(BaseExtractor):
         return {
             "destination_url": stream_url,
             "request_headers": headers,
-            "mediaflow_endpoint": self.mediaflow_endpoint,
+            "mediaflow_endpoint": "hls_manifest_proxy",
         }
 
     # -----------------------------------------------------
