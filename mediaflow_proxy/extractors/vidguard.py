@@ -14,13 +14,6 @@ class VidGuardExtractor(BaseExtractor):
         self.mediaflow_endpoint = "hls_manifest_proxy"
 
     async def extract(self, url: str):
-        parsed_url = urlparse(url)
-
-        if not parsed_url.hostname:
-            raise ExtractorError("VIDGUARD: URL missing hostname")
-
-        if not any(parsed_url.hostname.endswith(d) for d in self.VALID_DOMAINS):
-            raise ExtractorError("VIDGUARD: Invalid VidGuard domain")
 
         response = await self._make_request(
             url,
