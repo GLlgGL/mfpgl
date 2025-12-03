@@ -25,7 +25,9 @@ class VidGuardExtractor(BaseExtractor):
         "6tnutl8knw.sbs", "dhmu4p2hkp.sbs", "gsfjzmqu.sbs",
     ]
 
-    mediaflow_endpoint = "hls_manifest_proxy"
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mediaflow_endpoint = "hls_manifest_proxy"
 
     # -----------------------------------------------------
     #                   MAIN EXTRACTOR
