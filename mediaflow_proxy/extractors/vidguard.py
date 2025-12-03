@@ -9,14 +9,6 @@ from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
 class VidGuardExtractor(BaseExtractor):
     
-    VALID_DOMAINS = [
-        "vidguard.to", "vid-guard.com", "vgfplay.com", "vgfplay.xyz",
-        "vgembed.com", "vembed.net", "embedv.net", "v6embed.xyz",
-        "fslinks.org", "go-streamer.net", "bembed.net", "listeamed.net",
-        "kinoger.pw", "moflix-stream.day",
-        "6tnutl8knw.sbs", "dhmu4p2hkp.sbs", "gsfjzmqu.sbs",
-    ]
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.mediaflow_endpoint = "hls_manifest_proxy"
