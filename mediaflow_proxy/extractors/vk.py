@@ -39,19 +39,17 @@ class VKExtractor(BaseExtractor):
         except Exception:
             raise ExtractorError("VK: invalid JSON payload")
 
-        stream, kind = self._extract_stream(js)
-        if not stream:
-            raise ExtractorError("VK: no playable stream found")
+        stream_url, stream_type = self._extract_stream(js)
+        if not stream_url:
+            raise ExtractorError("VK: no DASH or MP4 found")
 
-        if kind == "mpd":
+        if stream_type == "mpd":
             endpoint = "mpd_manifest_proxy"
-        elif kind == "hls":
-            endpoint = "hls_manifest_proxy"
-        else:
+        else:  # mp4 fallback
             endpoint = "proxy_stream_endpoint"
 
         return {
-            "destination_url": stream,
+            "destination_url": stream_url,
             "request_headers": headers,
             "mediaflow_endpoint": endpoint,
         }
@@ -85,7 +83,7 @@ class VKExtractor(BaseExtractor):
         }
 
     # ------------------------------------------------------------------
-    # STREAM SELECTION (DASH FIRST)
+    # DASH → MP4 ONLY
     # ------------------------------------------------------------------
 
     def _extract_stream(self, js: Any) -> tuple[str | None, str | None]:
@@ -104,15 +102,12 @@ class VKExtractor(BaseExtractor):
         if not params:
             return None, None
 
-        # ✅ 1. DASH (MPD) — ALWAYS FIRST
-        if params.get("dash"):
-            return params["dash"], "mpd"
+        # ✅ 1) DASH (MPD) — PRIMARY
+        dash = params.get("dash")
+        if dash:
+            return dash, "mpd"
 
-        # ✅ 2. HLS fallback
-        if params.get("hls"):
-            return params["hls"], "hls"
-
-        # ✅ 3. MP4 LAST (avoid when possible)
+        # ✅ 2) MP4 FALLBACK — LAST RESORT
         mp4 = (
             params.get("url1080")
             or params.get("url720")
