@@ -23,6 +23,7 @@ from mediaflow_proxy.extractors.vidoza import VidozaExtractor
 from mediaflow_proxy.extractors.vixcloud import VixCloudExtractor
 from mediaflow_proxy.extractors.fastream import FastreamExtractor
 from mediaflow_proxy.extractors.voe import VoeExtractor
+from mediaflow_proxy.extractors.F16Px import F16PxExtractor
 
 
 class ExtractorFactory:
@@ -31,6 +32,7 @@ class ExtractorFactory:
     _extractors: Dict[str, Type[BaseExtractor]] = {
         "Doodstream": DoodStreamExtractor,
         "FileLions": FileLionsExtractor,
+        "F16Px": F16PxExtractor,
         "FileMoon": FileMoonExtractor,
         "Uqload": UqloadExtractor,
         "Mixdrop": MixdropExtractor,
