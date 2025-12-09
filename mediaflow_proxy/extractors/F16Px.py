@@ -94,6 +94,9 @@ class F16PxExtractor(BaseExtractor):
 
         return {
             "destination_url": best,
-            "request_headers": headers,
-            "mediaflow_endpoint": self.mediaflow_endpoint,
+            "request_headers": {
+            "User-Agent": self.base_headers["User-Agent"],
+            "Referer": f"https://{parsed.hostname}/"
+            },
+            "mediaflow_endpoint": "hls_manifest_proxy",
         }
