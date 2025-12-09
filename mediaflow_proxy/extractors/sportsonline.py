@@ -17,10 +17,7 @@ class SportsonlineExtractor(BaseExtractor):
         self.mediaflow_endpoint = "hls_manifest_proxy"
 
     def _detect_packed_blocks(self, html: str) -> list[str]:
-        """
-        Detect and extract packed eval blocks from HTML.
-        Replicates the TypeScript logic: /eval\(function(.+?.+)/g
-        """
+    
         # Find all eval(function...) blocks - more greedy to capture full packed code
         pattern = re.compile(r"eval\(function\(p,a,c,k,e,.*?\)\)(?:\s*;|\s*<)", re.DOTALL)
         raw_matches = pattern.findall(html)
