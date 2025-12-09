@@ -30,6 +30,7 @@ class F16PxExtractor(BaseExtractor):
     async def extract(self, url: str) -> Dict[str, Any]:
         parsed = urlparse(url)
         host = (parsed.hostname or "").lower()
+        origin = f"{parsed.scheme}://{parsed.hostname}"
 
         if not (host.endswith("f16px.com") or host.endswith("bysesayeveum.com")):
             raise ExtractorError("F16PX: Invalid domain")
@@ -93,14 +94,15 @@ class F16PxExtractor(BaseExtractor):
             raise ExtractorError("F16PX: Empty source URL after decryption")
 
         headers = self.base_headers.copy()
-        headers["referer"] = f"https://{host}/"
-        headers["origin"] = f"https://{host}"
+        headers["referer"] = origin + "/"
+        headers["origin"] = origin
         headers["user-agent"] = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) "
         "Gecko/20100101 Firefox/140.0"
         )
         headers["accept"] = "*/*"
         headers["accept-language"] = "en-US,en;q=0.5"
+
         return {
             "destination_url": best,
             "request_headers": headers,
