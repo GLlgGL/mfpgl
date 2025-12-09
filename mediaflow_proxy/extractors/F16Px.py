@@ -92,6 +92,15 @@ class F16PxExtractor(BaseExtractor):
         if not best:
             raise ExtractorError("F16PX: Empty source URL after decryption")
 
+        headers = self.base_headers.copy()
+        headers["referer"] = f"https://{host}/"
+        headers["origin"] = f"https://{host}"
+        headers["user-agent"] = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) "
+        "Gecko/20100101 Firefox/140.0"
+        )
+        headers["accept"] = "*/*"
+        headers["accept-language"] = "en-US,en;q=0.5"
         return {
             "destination_url": best,
             "request_headers": headers,
