@@ -10,20 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class SportsonlineExtractor(BaseExtractor):
-    """Sportsonline/Sportzonline URL extractor for M3U8 streams.
-
-    Strategy:
-    1. Fetch page -> find first <iframe src="...">
-    2. Fetch iframe with Referer=https://sportzonline.st/
-    3. Collect packed eval blocks; if >=2 use second (index 1) else first.
-    4. Unpack P.A.C.K.E.R. and search var src="...m3u8".
-    5. Return final m3u8 with referer header.
-
-    Notes:
-    - Multi-domain support for sportzonline.(st|bz|cc|top) and sportsonline.(si|sn)
-    - Uses P.A.C.K.E.R. unpacking from utils.packed module
-    - Returns streams suitable for hls_manifest_proxy endpoint
-    """
+ 
 
     def __init__(self, request_headers: dict):
         super().__init__(request_headers)
