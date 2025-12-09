@@ -24,7 +24,6 @@ from mediaflow_proxy.extractors.vixcloud import VixCloudExtractor
 from mediaflow_proxy.extractors.fastream import FastreamExtractor
 from mediaflow_proxy.extractors.voe import VoeExtractor
 from mediaflow_proxy.extractors.F16Px import F16PxExtractor
-from mediaflow_proxy.extractors.vk import VKExtractor
 
 
 class ExtractorFactory:
@@ -53,7 +52,6 @@ class ExtractorFactory:
         "Vidoza": VidozaExtractor,
         "Fastream": FastreamExtractor,
         "Voe": VoeExtractor,
-        "VK": VKExtractor,
         "Sportsonline": SportsonlineExtractor,
     }
 
