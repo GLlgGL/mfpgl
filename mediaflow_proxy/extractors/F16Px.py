@@ -30,7 +30,7 @@ class F16PxExtractor(BaseExtractor):
     async def extract(self, url: str) -> Dict[str, Any]:
         parsed = urlparse(url)
         host = parsed.netloc
-        origin = f"{parsed.scheme}://{host}"
+        origin = f"{parsed.scheme}://{parsed.netloc}"
 
         if not (host.endswith("f16px.com") or host.endswith("bysesayeveum.com")):
             raise ExtractorError("F16PX: Invalid domain")
@@ -93,6 +93,7 @@ class F16PxExtractor(BaseExtractor):
         if not best:
             raise ExtractorError("F16PX: Empty source URL after decryption")
 
+        self.base_headers.clear()
         self.base_headers["referer"] = f"{origin}/"
         self.base_headers["origin"] = origin
         self.base_headers["Accept-Language"] = "en-US,en;q=0.5"
