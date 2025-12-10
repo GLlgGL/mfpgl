@@ -5,33 +5,28 @@ from urllib.parse import urlparse
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
-
 UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/129.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/129.0 Safari/537.36"
 )
 
 
 class VKExtractor(BaseExtractor):
-    """
-    VK MediaFlow extractor (CORRECT VERSION)
-    - al_video.php → extract HLS master
-    - MediaFlow proxies playlist + segments
-    """
-
     mediaflow_endpoint = "hls_manifest_proxy"
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
         embed_url = self._normalize(url)
 
+        # 1️⃣ Call VK API
         ajax_url = self._build_ajax_url(embed_url)
 
         headers = {
             "User-Agent": UA,
             "Referer": "https://vkvideo.ru/",
             "Origin": "https://vkvideo.ru",
-            "X-Requested-With": "XMLHttpRequest",
             "Cookie": "remixlang=0",
+            "X-Requested-With": "XMLHttpRequest",
         }
 
         response = await self._make_request(
@@ -44,17 +39,17 @@ class VKExtractor(BaseExtractor):
         text = response.text.lstrip("<!--")
 
         try:
-            js = json.loads(text)
+            json_data = json.loads(text)
         except Exception:
-            raise ExtractorError("VK: invalid JSON")
+            raise ExtractorError("VK: invalid JSON payload")
 
-        hls_url = self._extract_hls(js)
-        if not hls_url:
-            raise ExtractorError("VK: HLS not found")
+        playlist_url = self._extract_hls(json_data)
+        if not playlist_url:
+            raise ExtractorError("VK: HLS URL not found")
 
-        # ✅ IMPORTANT: Return URL ONLY
+        # 2️⃣ Return ONLY playlist URL — MediaFlow handles the rest
         return {
-            "destination_url": hls_url,
+            "destination_url": playlist_url,
             "request_headers": {
                 "Referer": "https://vkvideo.ru/",
                 "User-Agent": UA,
@@ -63,16 +58,18 @@ class VKExtractor(BaseExtractor):
         }
 
     # --------------------------------------------------
+    # Helpers
+    # --------------------------------------------------
 
     def _normalize(self, url: str) -> str:
         if "video_ext.php" in url:
             return url
 
-        m = re.search(r"video(-?\d+)_(\d+)", url)
+        m = re.search(r"video(\d+)_(\d+)", url)
         if not m:
-            raise ExtractorError("VK: invalid URL")
+            raise ExtractorError("VK: invalid URL format")
 
-        oid, vid = m.groups()
+        oid, vid = m.group(1), m.group(2)
         return f"https://vkvideo.ru/video_ext.php?oid={oid}&id={vid}"
 
     def _build_ajax_url(self, embed_url: str) -> str:
@@ -90,8 +87,8 @@ class VKExtractor(BaseExtractor):
             "video": f"{qs['oid']}_{qs['id']}",
         }
 
-    def _extract_hls(self, data: Any) -> str | None:
-        for item in data.get("payload", []):
+    def _extract_hls(self, json_data: Any) -> str | None:
+        for item in json_data.get("payload", []):
             if isinstance(item, list):
                 for block in item:
                     if isinstance(block, dict) and block.get("player"):
