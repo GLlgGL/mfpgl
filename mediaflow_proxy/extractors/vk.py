@@ -4,7 +4,11 @@ from typing import Dict, Any
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
-UA = ("Mozilla/5.0 (Linux; Android 13; SM-G991B)")
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/129.0 Safari/537.36"
+)
 
 
 class VKExtractor(BaseExtractor):
@@ -73,7 +77,7 @@ class VKExtractor(BaseExtractor):
     def _build_ajax_url(self, embed_url: str) -> str:
         host = re.search(r"https?://([^/]+)", embed_url).group(1)
         # ✅ EXACT match with curl / ResolveURL
-        return f"https://{host}/al_video.php?act=show"
+        return f"https://{host}/al_video.php"
 
     def _build_ajax_data(self, embed_url: str) -> Dict[str, str]:
         qs = dict(
