@@ -1,7 +1,6 @@
 import json
 import re
 from typing import Dict, Any
-from urllib.parse import urlparse
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
@@ -16,15 +15,14 @@ class VKExtractor(BaseExtractor):
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
         embed_url = self._normalize(url)
-
-        # --- 1️⃣ Call VK API ---
         ajax_url = self._build_ajax_url(embed_url)
+
         headers = {
             "User-Agent": UA,
             "Referer": "https://vkvideo.ru/",
             "Origin": "https://vkvideo.ru",
-            "Cookie": "remixlang=0",
             "X-Requested-With": "XMLHttpRequest",
+            "Cookie": "remixlang=0",
         }
 
         response = await self._make_request(
@@ -41,24 +39,13 @@ class VKExtractor(BaseExtractor):
         except Exception:
             raise ExtractorError("VK: invalid JSON payload")
 
-        playlist_url = self._extract_stream(json_data)
-        if not playlist_url:
-            raise ExtractorError("VK: no playable HLS URL found")
+        hls_url = self._extract_hls(json_data)
+        if not hls_url:
+            raise ExtractorError("VK: HLS URL not found")
 
-        # --- 2️⃣ Fetch playlist ---
-        playlist_resp = await self._make_request(
-            playlist_url,
-            method="GET",
-            headers={"Referer": "https://vkvideo.ru/"},
-        )
-
-        rewritten_playlist = self._rewrite_playlist(
-            playlist_resp.text, playlist_url
-        )
-
-        # --- 3️⃣ Return rewritten playlist ---
+        # ✅ IMPORTANT: return ONLY the master playlist URL
         return {
-            "destination_url": rewritten_playlist,
+            "destination_url": hls_url,
             "request_headers": {
                 "Referer": "https://vkvideo.ru/",
                 "User-Agent": UA,
@@ -66,22 +53,7 @@ class VKExtractor(BaseExtractor):
             "mediaflow_endpoint": self.mediaflow_endpoint,
         }
 
-    # --------------------------------------------------
-    # Helpers
-    # --------------------------------------------------
-
-    def _rewrite_playlist(self, playlist: str, master_url: str) -> str:
-        """Rewrite relative HLS URLs to absolute (VLC/Stremio fix)."""
-        base = urlparse(master_url).scheme + "://" + urlparse(master_url).netloc
-        out = []
-
-        for line in playlist.splitlines():
-            if line.startswith("/"):
-                out.append(base + line)
-            else:
-                out.append(line)
-
-        return "\n".join(out)
+    # -------------------------------------------------
 
     def _normalize(self, url: str) -> str:
         if "video_ext.php" in url:
@@ -89,7 +61,7 @@ class VKExtractor(BaseExtractor):
 
         m = re.search(r"video(\d+)_(\d+)", url)
         if not m:
-            raise ExtractorError("VK: invalid URL format")
+            raise ExtractorError("VK: invalid URL")
 
         oid, vid = m.group(1), m.group(2)
         return f"https://vkvideo.ru/video_ext.php?oid={oid}&id={vid}"
@@ -98,7 +70,7 @@ class VKExtractor(BaseExtractor):
         host = re.search(r"https?://([^/]+)", embed_url).group(1)
         return f"https://{host}/al_video.php"
 
-    def _build_ajax_data(self, embed_url: str) -> Dict[str, str]:
+    def _build_ajax_data(self, embed_url: str):
         qs = dict(
             part.split("=", 1)
             for part in embed_url.split("?", 1)[1].split("&")
@@ -109,7 +81,7 @@ class VKExtractor(BaseExtractor):
             "video": f"{qs['oid']}_{qs['id']}",
         }
 
-    def _extract_stream(self, json_data: Any) -> str | None:
+    def _extract_hls(self, json_data: Any) -> str | None:
         for item in json_data.get("payload", []):
             if isinstance(item, list):
                 for block in item:
