@@ -1,7 +1,7 @@
 import json
 import re
 from typing import Dict, Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
@@ -13,54 +13,62 @@ UA = (
 
 
 class VKExtractor(BaseExtractor):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.mediaflow_endpoint = "proxy_stream_endpoint"
+    # ✅ IMPORTANT: proxy STREAM, not manifest
+    mediaflow_endpoint = "proxy_stream"
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
         embed_url = self._normalize(url)
 
-        # 1️⃣ Call VK API
-        ajax_url = self._build_ajax_url(embed_url)
-
-        headers = {
-            "User-Agent": UA,
-            "Referer": "https://vkvideo.ru/",
-            "Origin": "https://vkvideo.ru",
-            "Cookie": "remixlang=0",
-            "X-Requested-With": "XMLHttpRequest",
-        }
-
+        # --- 1️⃣ Call VK API ---
         response = await self._make_request(
-            ajax_url,
+            self._ajax_url(embed_url),
             method="POST",
-            data=self._build_ajax_data(embed_url),
-            headers=headers,
+            data=self._ajax_data(embed_url),
+            headers={
+                "User-Agent": UA,
+                "Referer": "https://vkvideo.ru/",
+                "Origin": "https://vkvideo.ru",
+                "X-Requested-With": "XMLHttpRequest",
+            },
         )
 
         text = response.text.lstrip("<!--")
 
         try:
-            json_data = json.loads(text)
+            data = json.loads(text)
         except Exception:
-            raise ExtractorError("VK: invalid JSON payload")
+            raise ExtractorError("VK: invalid JSON")
 
-        playlist_url = self._extract_hls(json_data)
+        playlist_url = self._extract_hls(data)
         if not playlist_url:
-            raise ExtractorError("VK: HLS URL not found")
+            raise ExtractorError("VK: no HLS playlist")
 
-        # 2️⃣ Return ONLY playlist URL — MediaFlow handles the rest
+        # --- 2️⃣ Fetch playlist ---
+        playlist_resp = await self._make_request(
+            playlist_url,
+            method="GET",
+            headers={"User-Agent": UA, "Referer": "https://vkvideo.ru/"},
+        )
+
+        # --- 3️⃣ Pick ONE stream URL ---
+        stream_url = self._pick_stream(
+            playlist_resp.text,
+            base_url=playlist_url
+        )
+
+        if not stream_url:
+            raise ExtractorError("VK: no stream found")
+
+        # --- 4️⃣ Return DIRECT VIDEO STREAM ---
         return {
-            "destination_url": playlist_url,
+            "destination_url": stream_url,
             "request_headers": {
-                "Referer": "https://vkvideo.ru/",
                 "User-Agent": UA,
+                "Referer": "https://vkvideo.ru/",
             },
             "mediaflow_endpoint": self.mediaflow_endpoint,
         }
 
-    # --------------------------------------------------
-    # Helpers
     # --------------------------------------------------
 
     def _normalize(self, url: str) -> str:
@@ -69,35 +77,51 @@ class VKExtractor(BaseExtractor):
 
         m = re.search(r"video(\d+)_(\d+)", url)
         if not m:
-            raise ExtractorError("VK: invalid URL format")
+            raise ExtractorError("Invalid VK URL")
 
-        oid, vid = m.group(1), m.group(2)
-        return f"https://vkvideo.ru/video_ext.php?oid={oid}&id={vid}"
+        return f"https://vkvideo.ru/video_ext.php?oid={m[1]}&id={m[2]}"
 
-    def _build_ajax_url(self, embed_url: str) -> str:
-        host = urlparse(embed_url).netloc
+    def _ajax_url(self, embed: str) -> str:
+        host = urlparse(embed).netloc
         return f"https://{host}/al_video.php"
 
-    def _build_ajax_data(self, embed_url: str) -> Dict[str, str]:
-        qs = dict(
-            part.split("=", 1)
-            for part in embed_url.split("?", 1)[1].split("&")
-        )
+    def _ajax_data(self, embed: str) -> Dict[str, str]:
+        qs = dict(part.split("=", 1) for part in embed.split("?", 1)[1].split("&"))
         return {
             "act": "show",
             "al": "1",
             "video": f"{qs['oid']}_{qs['id']}",
         }
 
-    def _extract_hls(self, json_data: Any) -> str | None:
-        for item in json_data.get("payload", []):
+    def _extract_hls(self, data: Any) -> str | None:
+        for item in data.get("payload", []):
             if isinstance(item, list):
                 for block in item:
                     if isinstance(block, dict) and block.get("player"):
-                        params = block["player"]["params"][0]
+                        p = block["player"]["params"][0]
                         return (
-                            params.get("hls")
-                            or params.get("hls_ondemand")
-                            or params.get("hls_live")
+                            p.get("hls")
+                            or p.get("hls_ondemand")
+                            or p.get("hls_live")
                         )
         return None
+
+    def _pick_stream(self, playlist: str, base_url: str) -> str | None:
+        """
+        Pick highest quality stream and convert to absolute URL
+        """
+        lines = playlist.splitlines()
+        chosen = None
+
+        for i, line in enumerate(lines):
+            if line.startswith("#EXT-X-STREAM-INF"):
+                if i + 1 < len(lines):
+                    url = lines[i + 1].strip()
+                    if "/expires/" in url:
+                        chosen = url  # last = best quality
+
+        if not chosen:
+            return None
+
+        # ✅ ABSOLUTE URL FIX
+        return urljoin(base_url, chosen)
