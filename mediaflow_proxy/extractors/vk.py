@@ -103,6 +103,10 @@ class VKExtractor(BaseExtractor):
                             p.get("hls")
                             or p.get("hls_ondemand")
                             or p.get("hls_live")
+                            or params.get("url1080")
+                            or params.get("url720")
+                            or params.get("url480")
+                            or params.get("url360")
                         )
         return None
 
