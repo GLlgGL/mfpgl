@@ -15,7 +15,7 @@ UA = (
 class VKExtractor(BaseExtractor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.mediaflow_endpoint = "hls_segment_proxy"
+     
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
         embed_url = self._normalize(url)
@@ -67,7 +67,7 @@ class VKExtractor(BaseExtractor):
                 "User-Agent": UA,
                 "Referer": "https://vkvideo.ru/",
             },
-            "mediaflow_endpoint": self.mediaflow_endpoint,
+            
         }
 
     # --------------------------------------------------
