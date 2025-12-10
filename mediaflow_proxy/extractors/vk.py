@@ -1,132 +1,118 @@
 import json
 import re
 from typing import Dict, Any
-from urllib.parse import urlparse, urljoin
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
+
 UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/129.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/129.0 Safari/537.36"
 )
 
 
 class VKExtractor(BaseExtractor):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-     
+    mediaflow_endpoint = "hls_manifest_proxy"
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
         embed_url = self._normalize(url)
 
-        # --- 1️⃣ Call VK API ---
-        response = await self._make_request(
-            self._ajax_url(embed_url),
-            method="POST",
-            data=self._ajax_data(embed_url),
-            headers={
-                "User-Agent": UA,
-                "Referer": "https://vkvideo.ru/",
-                "Origin": "https://vkvideo.ru",
-                "X-Requested-With": "XMLHttpRequest",
-            },
-        )
+        # STEP 1 — call al_video.php (VK API)
+        ajax_url = self._build_ajax_url(embed_url)
 
-        text = response.text.lstrip("<!--")
-
-        try:
-            data = json.loads(text)
-        except Exception:
-            raise ExtractorError("VK: invalid JSON")
-
-        playlist_url = self._extract_hls(data)
-        if not playlist_url:
-            raise ExtractorError("VK: no HLS playlist")
-
-        # --- 2️⃣ Fetch playlist ---
-        playlist_resp = await self._make_request(
-            playlist_url,
-            method="GET",
-            headers={"User-Agent": UA, "Referer": "https://vkvideo.ru/"},
-        )
-
-        # --- 3️⃣ Pick ONE stream URL ---
-        stream_url = self._pick_stream(
-            playlist_resp.text,
-            base_url=playlist_url
-        )
-
-        if not stream_url:
-            raise ExtractorError("VK: no stream found")
-
-        # --- 4️⃣ Return DIRECT VIDEO STREAM ---
-        return {
-            "destination_url": stream_url,
-            "request_headers": {
-                "User-Agent": UA,
-                "Referer": "https://vkvideo.ru/",
-            },
-            
+        headers = {
+            "User-Agent": UA,
+            "Referer": "https://vkvideo.ru/",
+            "Origin": "https://vkvideo.ru",
+            "Cookie": "remixlang=0",
+            "X-Requested-With": "XMLHttpRequest",
         }
 
-    # --------------------------------------------------
+        data = self._build_ajax_data(embed_url)
+
+        response = await self._make_request(
+            ajax_url,
+            method="POST",
+            data=data,
+            headers=headers
+        )
+
+        text = response.text
+        if text.startswith("<!--"):
+            text = text[4:]
+
+        try:
+            json_data = json.loads(text)
+        except:
+            raise ExtractorError("VK: invalid JSON payload")
+
+        stream = self._extract_stream(json_data)
+        if not stream:
+            raise ExtractorError("VK: no playable HLS URL found")
+
+        playlist_url = stream
+
+        return {
+            "destination_url": playlist_url,
+            "request_headers": headers,
+            "mediaflow_endpoint": self.mediaflow_endpoint,
+        }
+
+    # -------------------------------
+    # HELPERS
+    # -------------------------------
 
     def _normalize(self, url: str) -> str:
+        """Normalize all VK URLs into /video_ext.php style."""
         if "video_ext.php" in url:
             return url
 
         m = re.search(r"video(\d+)_(\d+)", url)
         if not m:
-            raise ExtractorError("Invalid VK URL")
+            return url
 
-        return f"https://vkvideo.ru/video_ext.php?oid={m[1]}&id={m[2]}"
+        oid, vid = m.group(1), m.group(2)
+        return f"https://vk.com/video_ext.php?oid={oid}&id={vid}"
 
-    def _ajax_url(self, embed: str) -> str:
-        host = urlparse(embed).netloc
-        return f"https://{host}/al_video.php"
+    def _build_ajax_url(self, embed_url: str) -> str:
+        host = re.search(r"https?://([^/]+)", embed_url).group(1)
+        return f"https://{host}/al_video.php?act=show"
 
-    def _ajax_data(self, embed: str) -> Dict[str, str]:
-        qs = dict(part.split("=", 1) for part in embed.split("?", 1)[1].split("&"))
+    def _build_ajax_data(self, embed_url: str) -> Dict[str, str]:
+        qs = re.search(r"\?(.*)", embed_url)
+        parts = (
+            dict(x.split("=") for x in qs.group(1).split("&"))
+            if qs
+            else {}
+        )
+
         return {
             "act": "show",
             "al": "1",
-            "video": f"{qs['oid']}_{qs['id']}",
+            "video": f"{parts.get('oid')}_{parts.get('id')}",
         }
 
-    def _extract_hls(self, data: Any) -> str | None:
-        for item in data.get("payload", []):
+    def _extract_stream(self, json_data: Any) -> str:
+        payload = []
+        for item in json_data.get("payload", []):
             if isinstance(item, list):
-                for block in item:
-                    if isinstance(block, dict) and block.get("player"):
-                        p = block["player"]["params"][0]
-                        return (
-                            p.get("hls")
-                            or p.get("hls_ondemand")
-                            or p.get("hls_live")
-                            or params.get("url1080")
-                            or params.get("url720")
-                            or params.get("url480")
-                            or params.get("url360")
-                        )
-        return None
+                payload = item
 
-    def _pick_stream(self, playlist: str, base_url: str) -> str | None:
-        """
-        Pick highest quality stream and convert to absolute URL
-        """
-        lines = playlist.splitlines()
-        chosen = None
+        params = None
+        for item in payload:
+            if isinstance(item, dict) and item.get("player"):
+                params = item["player"]["params"][0]
 
-        for i, line in enumerate(lines):
-            if line.startswith("#EXT-X-STREAM-INF"):
-                if i + 1 < len(lines):
-                    url = lines[i + 1].strip()
-                    if "/expires/" in url:
-                        chosen = url  # last = best quality
-
-        if not chosen:
+        if not params:
             return None
 
-        # ✅ ABSOLUTE URL FIX
-        return urljoin(base_url, chosen)
+        # HLS preferred
+        return (
+            params.get("hls")
+            or params.get("hls_ondemand")
+            or params.get("hls_live")
+            or params.get("url1080")
+            or params.get("url720")
+            or params.get("url480")
+            or params.get("url360")
+        )
