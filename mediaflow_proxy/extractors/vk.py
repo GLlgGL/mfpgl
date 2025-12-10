@@ -13,8 +13,9 @@ UA = (
 
 
 class VKExtractor(BaseExtractor):
-    # ✅ IMPORTANT: proxy STREAM, not manifest
-    mediaflow_endpoint = "hls_stream_endpoint"
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mediaflow_endpoint = "proxy_manifest_proxy"
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
         embed_url = self._normalize(url)
