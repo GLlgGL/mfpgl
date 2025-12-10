@@ -4,7 +4,7 @@ from typing import Dict, Any
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
 
-UA = "User-Agent: Mozilla/5.0"
+UA = ("Mozilla/5.0 (Linux; Android 13; SM-G991B)")
 
 
 class VKExtractor(BaseExtractor):
