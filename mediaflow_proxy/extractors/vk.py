@@ -24,7 +24,6 @@ class VKExtractor(BaseExtractor):
             "Referer": "https://vkvideo.ru/",
             "Origin": "https://vkvideo.ru",
             "X-Requested-With": "XMLHttpRequest",
-            "Cookie": "remixlang=0",
         }
 
         response = await self._make_request(
