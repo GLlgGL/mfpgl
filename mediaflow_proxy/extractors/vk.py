@@ -14,8 +14,8 @@ UA = (
 class VKExtractor(BaseExtractor):
     """
     MediaFlow VK extractor
-    - al_video.php is fetched HERE (safe)
-    - ONLY HLS (video.m3u8)
+    - Matches curl + ResolveURL behavior
+    - HLS ONLY
     """
 
     async def extract(self, url: str, **kwargs) -> Dict[str, Any]:
@@ -38,7 +38,9 @@ class VKExtractor(BaseExtractor):
             headers=headers,
         )
 
-        text = response.text.lstrip("<!--")
+        text = response.text
+        if text.startswith("<!--"):
+            text = text[4:]
 
         try:
             js = json.loads(text)
@@ -50,7 +52,6 @@ class VKExtractor(BaseExtractor):
         if not hls_url:
             raise ExtractorError("VK: HLS stream not found")
 
-        # ✅ MediaFlow HLS proxy
         return {
             "destination_url": hls_url,
             "request_headers": {
@@ -64,7 +65,6 @@ class VKExtractor(BaseExtractor):
     # ------------------------------------------------------------
 
     def _normalize(self, url: str) -> str:
-        """Ensure video_ext.php form"""
         if "video_ext.php" in url:
             return url
 
@@ -77,7 +77,8 @@ class VKExtractor(BaseExtractor):
 
     def _build_ajax_url(self, embed_url: str) -> str:
         host = re.search(r"https?://([^/]+)", embed_url).group(1)
-        return f"https://{host}/al_video.php"
+        # ✅ EXACT match with curl / ResolveURL
+        return f"https://{host}/al_video.php?act=show"
 
     def _build_ajax_data(self, embed_url: str) -> Dict[str, str]:
         qs = dict(
@@ -91,7 +92,7 @@ class VKExtractor(BaseExtractor):
         }
 
     # ------------------------------------------------------------
-    # HLS ONLY
+    # Extract HLS EXACTLY like ResolveURL
     # ------------------------------------------------------------
 
     def _extract_hls(self, js: Any) -> str | None:
@@ -110,8 +111,9 @@ class VKExtractor(BaseExtractor):
         if not params:
             return None
 
-        # ✅ VK ALWAYS exposes HLS here
+        # ✅ EXACT fallback order
         return (
             params.get("hls")
             or params.get("hls_ondemand")
+            or params.get("hls_live")
         )
