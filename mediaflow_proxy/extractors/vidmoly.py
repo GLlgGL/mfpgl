@@ -19,8 +19,13 @@ class VidmolyExtractor(BaseExtractor):
             raise ExtractorError("VIDMOLY: Invalid domain")
 
         # --- Request the main embed page ---
-        response = await self._make_request(url)
-        html = response.text
+        try:
+            response = await self._make_request(url)
+            html = response.text
+        except Exception as e:
+            if "timeout" in str(e).lower():
+                raise ExtractorError("VIDMOLY: Request timed out")
+            raise
         final_url = str(getattr(response, "url", ""))
 
         # --- Detect dead/removed video / notice page ---
