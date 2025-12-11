@@ -3,7 +3,7 @@ import typing
 from dataclasses import dataclass
 from functools import partial
 from urllib import parse
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 import anyio
 import h11
@@ -81,10 +81,6 @@ async def fetch_with_retry(client, method, url, headers, follow_redirects=True, 
 
 
 class Streamer:
-    # PNG signature and IEND marker for fake PNG header detection (StreamWish/FileMoon)
-    _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-    _PNG_IEND_MARKER = b"\x49\x45\x4E\x44\xAE\x42\x60\x82"
-
     def __init__(self, client):
         """
         Initializes the Streamer with an HTTP client.
@@ -136,47 +132,15 @@ class Streamer:
             logger.error(f"Error creating streaming response: {e}")
             raise RuntimeError(f"Error creating streaming response: {e}")
 
-    @staticmethod
-    def _strip_fake_png_wrapper(chunk: bytes) -> bytes:
-        """
-        Strip fake PNG wrapper from chunk data.
-
-        Some streaming services (StreamWish, FileMoon) prepend a fake PNG image
-        to video data to evade detection. This method detects and removes it.
-
-        Args:
-            chunk: The raw chunk data that may contain a fake PNG header.
-
-        Returns:
-            The chunk with fake PNG wrapper removed, or original chunk if not present.
-        """
-        if not chunk.startswith(Streamer._PNG_SIGNATURE):
-            return chunk
-
-        # Find the IEND marker that signals end of PNG data
-        iend_pos = chunk.find(Streamer._PNG_IEND_MARKER)
-        if iend_pos == -1:
-            # IEND not found in this chunk - return as-is to avoid data corruption
-            logger.debug("PNG signature detected but IEND marker not found in chunk")
-            return chunk
-
-        # Calculate position after IEND marker
-        content_start = iend_pos + len(Streamer._PNG_IEND_MARKER)
-
-        # Skip any padding bytes (null or 0xFF) between PNG and actual content
-        while content_start < len(chunk) and chunk[content_start] in (0x00, 0xFF):
-            content_start += 1
-
-        stripped_bytes = content_start
-        logger.debug(f"Stripped {stripped_bytes} bytes of fake PNG wrapper from stream")
-
-        return chunk[content_start:]
-
     async def stream_content(self) -> typing.AsyncGenerator[bytes, None]:
         if not self.response:
             raise RuntimeError("No response available for streaming")
 
-        is_first_chunk = True
+    # ---- StreamWish / FileMoon fake PNG header ----
+        FAKE_PNG_HEADER = b"\x89PNG\r\n\x1a\n"
+        IEND = b"\x49\x45\x4E\x44\xAE\x42\x60\x82"
+
+        first_chunk = True  # <-- VERY IMPORTANT
 
         try:
             self.parse_content_range()
@@ -192,46 +156,54 @@ class Streamer:
                     ncols=100,
                     mininterval=1,
                 ) as self.progress_bar:
+
                     async for chunk in self.response.aiter_bytes():
-                        if is_first_chunk:
-                            is_first_chunk = False
-                            chunk = self._strip_fake_png_wrapper(chunk)
+
+                    # ---------------------------------------------------
+                    # Strip fake PNG header ONLY from FIRST chunk
+                    # ---------------------------------------------------
+                        if first_chunk:
+                            first_chunk = False
+
+                            if chunk.startswith(FAKE_PNG_HEADER):
+                                end = chunk.find(IEND)
+                                if end != -1:
+                                    pos = end + len(IEND)
+
+                                # skip padding bytes
+                                    while pos < len(chunk) and chunk[pos] in (0x00, 0xFF):
+                                        pos += 1
+
+                                    chunk = chunk[pos:]
 
                         yield chunk
                         self.bytes_transferred += len(chunk)
                         self.progress_bar.update(len(chunk))
+
             else:
                 async for chunk in self.response.aiter_bytes():
-                    if is_first_chunk:
-                        is_first_chunk = False
-                        chunk = self._strip_fake_png_wrapper(chunk)
+
+                # ---------------------------------------------------
+                # Strip fake PNG header ONLY from FIRST chunk
+                # ---------------------------------------------------
+                    if first_chunk:
+                        first_chunk = False
+
+                        if chunk.startswith(FAKE_PNG_HEADER):
+                            end = chunk.find(IEND)
+                            if end != -1:
+                                pos = end + len(IEND)
+
+                            # skip padding bytes
+                                while pos < len(chunk) and chunk[pos] in (0x00, 0xFF):
+                                    pos += 1
+
+                                chunk = chunk[pos:]
 
                     yield chunk
                     self.bytes_transferred += len(chunk)
 
-        except httpx.TimeoutException:
-            logger.warning("Timeout while streaming")
-            raise DownloadError(409, "Timeout while streaming")
-        except httpx.RemoteProtocolError as e:
-            # Special handling for connection closed errors
-            if "peer closed connection without sending complete message body" in str(e):
-                logger.warning(f"Remote server closed connection prematurely: {e}")
-                # If we've received some data, just log the warning and return normally
-                if self.bytes_transferred > 0:
-                    logger.info(
-                        f"Partial content received ({self.bytes_transferred} bytes). Continuing with available data."
-                    )
-                    return
-                else:
-                    # If we haven't received any data, raise an error
-                    raise DownloadError(502, f"Remote server closed connection without sending any data: {e}")
-            else:
-                logger.error(f"Protocol error while streaming: {e}")
-                raise DownloadError(502, f"Protocol error while streaming: {e}")
-        except GeneratorExit:
-            logger.info("Streaming session stopped by the user")
-        except Exception as e:
-            logger.error(f"Error streaming content: {e}")
+        except Exception:
             raise
 
             
@@ -540,15 +512,15 @@ def get_proxy_headers(request: Request) -> ProxyRequestHeaders:
         if "referer" not in request_headers:
             request_headers["referer"] = request_headers.pop("referrer")
             
-    dest = request.query_params.get("d", "")
-    host = urlparse(dest).netloc.lower()
+    for h in list(request_headers.keys()):
+        value = request_headers[h]
+        if value is None or value.strip() == "":
+            request_headers.pop(h, None)
             
-    if "vidoza" in host or "videzz" in host:
-        # Remove ALL empty headers
-        for h in list(request_headers.keys()):
-            v = request_headers[h]
-            if v is None or v.strip() == "":
-                request_headers.pop(h, None)
+    for bad in ("range", "if-range"):
+        if bad in request_headers:
+            if not request_headers[bad].strip():
+                request_headers.pop(bad, None)
 
     response_headers = {k[2:].lower(): v for k, v in request.query_params.items() if k.startswith("r_")}
     return ProxyRequestHeaders(request_headers, response_headers)
