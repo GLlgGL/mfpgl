@@ -72,7 +72,7 @@ class VidGuardExtractor(BaseExtractor):
 
         stream_url = self._decode_signature(stream_url)
 
-        test_resp = await self._make_request(final_url, headers={"Referer": url})
+        test_resp = await self._make_request(stream_url, headers={"Referer": url})
         if test_resp.status_code == 404:
             raise ExtractorError("VIDGUARD: Stream not found (404)")
 
