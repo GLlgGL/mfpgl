@@ -546,14 +546,9 @@ def get_proxy_headers(request: Request) -> ProxyRequestHeaders:
     if "vidoza" in host or "videzz" in host:
         # Remove ALL empty headers
         for h in list(request_headers.keys()):
-            value = request_headers[h]
-            if value is None or value.strip() == "":
+            v = request_headers[h]
+            if v is None or v.strip() == "":
                 request_headers.pop(h, None)
-        
-        for bad in ("range", "if-range"):
-            if bad in request_headers:
-                if not request_headers[bad].strip():
-                    request_headers.pop(bad, None)
 
     response_headers = {k[2:].lower(): v for k, v in request.query_params.items() if k.startswith("r_")}
     return ProxyRequestHeaders(request_headers, response_headers)
