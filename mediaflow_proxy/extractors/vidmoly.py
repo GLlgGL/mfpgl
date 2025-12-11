@@ -12,14 +12,25 @@ class VidmolyExtractor(BaseExtractor):
 
     async def extract(self, url: str) -> Dict[str, Any]:
         parsed = urlparse(url)
-        if not parsed.hostname or not parsed.hostname.endswith('vidmoly.net'):
-             raise ExtractorError("VIDMOLY: Invalid domain")
+        if not parsed.hostname or not any(parsed.hostname.endswith(d) for d in (
+            "vidmoly.net", "vidmoly.me", "vidmoly.to"
+        )):
+            raise ExtractorError("VIDMOLY: Invalid domain")
         
         # --- Request the main embed page ---
         response = await self._make_request(url)
         html = response.text
 
-        # Extract the initial m3u8 URL
+        # ✅ Detect redirect to dead-video notice page
+        if (
+            "notice.php" in response.url   # final URL after redirects
+            or "staticmoly" in html and "notice" in html
+            or "Video was removed" in html
+            or "Video not found" in html
+        ):
+            raise ExtractorError("VIDMOLY: Video removed")
+
+        # --- Extract HLS URL ---
         match = re.search(r'sources\s*:\s*\[\{file:"([^"]+)"', html)
         if not match:
             raise ExtractorError("VIDMOLY: stream URL not found")
@@ -34,17 +45,15 @@ class VidmolyExtractor(BaseExtractor):
         playlist_resp = await self._make_request(master_url)
         playlist_text = playlist_resp.text
 
-        # Parse variant streams (bandwidth + URL)
+        # Parse variant streams
         variants = re.findall(
             r'#EXT-X-STREAM-INF:.*?BANDWIDTH=(\d+).*?[\r\n]+([^\r\n]+)',
             playlist_text,
         )
 
         if not variants:
-            # No variants → use master URL directly
             best_url = master_url
         else:
-            # Pick highest bandwidth variant
             variants.sort(key=lambda x: int(x[0]), reverse=True)
             best_url = variants[0][1]
 
@@ -52,9 +61,9 @@ class VidmolyExtractor(BaseExtractor):
             if not best_url.startswith("http"):
                 best_url = urljoin(master_url, best_url)
 
-        # Return the structure required by MediaFlow Proxy
         headers = self.base_headers.copy()
         headers["referer"] = url
+
         return {
             "destination_url": best_url,
             "request_headers": headers,
