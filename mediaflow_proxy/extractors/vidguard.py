@@ -72,7 +72,13 @@ class VidGuardExtractor(BaseExtractor):
 
         stream_url = self._decode_signature(stream_url)
 
-        test_resp = await self._make_request(stream_url, headers={"Referer": url})
+        try:
+            test_resp = await self._make_request(stream_url, headers={"Referer": url})
+        except Exception as e:
+    # Detect request timeout
+            if "timeout" in str(e).lower():
+                raise ExtractorError("VIDGUARD: Request timed out")
+            raise
         if test_resp.status_code == 404:
             raise ExtractorError("VIDGUARD: Stream not found (404)")
 
