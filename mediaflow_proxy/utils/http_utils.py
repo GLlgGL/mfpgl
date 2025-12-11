@@ -547,7 +547,7 @@ def get_proxy_headers(request: Request) -> ProxyRequestHeaders:
         # Remove ALL empty headers
         for h in list(request_headers.keys()):
             v = request_headers[h]
-            if v is None:
+            if v is None or v.strip() == "":
                 request_headers.pop(h, None)
 
     response_headers = {k[2:].lower(): v for k, v in request.query_params.items() if k.startswith("r_")}
