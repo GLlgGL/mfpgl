@@ -56,8 +56,15 @@ class VidmolyExtractor(BaseExtractor):
             raise ExtractorError("VIDMOLY: Invalid stream URL scheme")
 
         # --- Fetch master playlist ---
-        playlist_resp = await self._make_request(master_url)
-        playlist_text = playlist_resp.text
+        try:
+            playlist_resp = await self._make_request(
+            master_url
+            )
+            playlist_text = playlist_resp.text
+        except Exception as e:
+            if "timeout" in str(e).lower():
+                raise ExtractorError("VIDMOLY: HLS playlist request timed out")
+            raise
 
         # Parse variant streams (bandwidth + URL)
         variants = re.findall(
