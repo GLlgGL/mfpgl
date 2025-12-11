@@ -234,6 +234,7 @@ class Streamer:
             logger.error(f"Error streaming content: {e}")
             raise
 
+            
     @staticmethod
     def format_bytes(size) -> str:
         power = 2**10
@@ -525,30 +526,30 @@ def get_proxy_headers(request: Request) -> ProxyRequestHeaders:
     """
     Extracts proxy headers from the request query parameters.
 
-    This fixed version:
-      - keeps your original behavior
-      - removes ALL empty headers (not only for Vidoza),
-        which prevents invalid headers like "Range: " or "If-Range: "
-        from reaching strict CDNs (e.g. ByteDance) and causing 403s.
-    """
-    # Start with allowed incoming headers from the client
-    request_headers = {k: v for k, v in request.headers.items() if k in SUPPORTED_REQUEST_HEADERS}
+    Args:
+        request (Request): The incoming HTTP request.
 
-    # Add/override with h_* query parameters (proxy-encoded headers)
+    Returns:
+        ProxyRequest: A named tuple containing the request headers and response headers.
+    """
+    request_headers = {k: v for k, v in request.headers.items() if k in SUPPORTED_REQUEST_HEADERS}
     request_headers.update({k[2:].lower(): v for k, v in request.query_params.items() if k.startswith("h_")})
 
     # Handle common misspelling of referer
     if "referrer" in request_headers:
         if "referer" not in request_headers:
             request_headers["referer"] = request_headers.pop("referrer")
+            
+    dest = request.query_params.get("d", "")
+    host = urlparse(dest).netloc.lower()
+            
+    if "vidoza" in host or "videzz" in host:
+        # Remove ALL empty headers
+        for h in list(request_headers.keys()):
+            v = request_headers[h]
+            if v is None or v.strip() == "":
+                request_headers.pop(h, None)
 
-    # NEW: Remove ALL empty headers (for every host, not just Vidoza)
-    for h in list(request_headers.keys()):
-        v = request_headers[h]
-        if v is None or (isinstance(v, str) and v.strip() == ""):
-            request_headers.pop(h, None)
-
-    # Response headers from r_* query parameters
     response_headers = {k[2:].lower(): v for k, v in request.query_params.items() if k.startswith("r_")}
     return ProxyRequestHeaders(request_headers, response_headers)
 
