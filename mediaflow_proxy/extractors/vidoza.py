@@ -24,10 +24,6 @@ class VidozaExtractor(BaseExtractor):
         headers = self.base_headers.copy()
         headers.update(
             {
-                "referer": "https://vidoza.net/",
-                "user-agent": (
-                    "Mozilla/5.0 (iPhone17,1; CPU iPhone OS 18_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Mohegan Sun/4.7.4"
-                ),
                 "accept": "*/*",
                 "accept-language": "en-US,en;q=0.9",
             }
