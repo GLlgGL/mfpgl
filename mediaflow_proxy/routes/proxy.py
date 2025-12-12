@@ -624,10 +624,10 @@ async def proxy_stream_endpoint(
         destination = dlhd_result["destination_url"]
         proxy_headers.request.update(dlhd_result.get("request_headers", {}))
         
-    #if proxy_headers.request.get("range", "").strip() == "":
+    if proxy_headers.request.get("range", "").strip() == "":
         #proxy_headers.request.pop("range", None)
 
-    #if proxy_headers.request.get("if-range", "").strip() == "":
+    if proxy_headers.request.get("if-range", "").strip() == "":
         #proxy_headers.request.pop("if-range", None)
     
     #if "range" not in proxy_headers.request:
