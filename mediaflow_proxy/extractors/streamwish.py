@@ -12,24 +12,14 @@ class StreamWishExtractor(BaseExtractor):
         self.mediaflow_endpoint = "hls_manifest_proxy"
 
     async def extract(self, url: str, **kwargs: Any) -> Dict[str, Any]:
-        #
-        # 0. Get referer the MediaFlow way
-        #
         referer = self.base_headers.get("Referer")
         if not referer:
             parsed = urlparse(url)
             referer = f"{parsed.scheme}://{parsed.netloc}/"
 
         headers = {"Referer": referer}
-
-        #
-        # 1. Load embed page
-        #
         response = await self._make_request(url, headers=headers)
-
-        #
-        # 2. Find iframe (if present)
-        #
+        
         iframe_match = re.search(
             r'<iframe[^>]+src=["\']([^"\']+)["\']',
             response.text,
@@ -37,23 +27,14 @@ class StreamWishExtractor(BaseExtractor):
         )
         iframe_url = iframe_match.group(1) if iframe_match else url
 
-        #
-        # 3. Load iframe page
-        #
         iframe_response = await self._make_request(
             iframe_url,
             headers=headers
         )
         html = iframe_response.text
 
-        #
-        # 4. Try direct m3u8 extraction (modern mirrors)
-        #
         final_url = self._extract_m3u8(html)
 
-        #
-        # 5. Fallback: packed JS → eval_solver (older mirrors like guxhag)
-        #
         if not final_url and "eval(function(p,a,c,k,e,d)" in html:
             try:
                 final_url = await eval_solver(
@@ -70,30 +51,18 @@ class StreamWishExtractor(BaseExtractor):
             except Exception:
                 final_url = None
 
-        #
-        # 6. Validate
-        #
         if not final_url:
             raise ExtractorError("StreamWish: Failed to extract m3u8")
 
-        #
-        # 7. Resolve relative URLs
-        #
         if final_url.startswith("/"):
             final_url = urljoin(iframe_url, final_url)
 
-        #
-        # 8. Set final headers (required by premilkyway CDN)
-        #
         origin = f"{urlparse(referer).scheme}://{urlparse(referer).netloc}"
         self.base_headers.update({
             "Referer": referer,
             "Origin": origin,
         })
 
-        #
-        # 9. Return MediaFlow payload
-        #
         return {
             "destination_url": final_url,
             "request_headers": self.base_headers,
