@@ -1,9 +1,9 @@
 import re
 from typing import Dict, Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
-from mediaflow_proxy.utils.packed import unpack_js
+from mediaflow_proxy.utils.packed import eval_solver
 
 
 class StreamWishExtractor(BaseExtractor):
@@ -13,7 +13,7 @@ class StreamWishExtractor(BaseExtractor):
 
     async def extract(self, url: str, **kwargs: Any) -> Dict[str, Any]:
         #
-        # 0. Correct referer (ResolveURL $$ equivalent)
+        # 0. Require correct referer (ResolveURL $$ equivalent)
         #
         page_referer = kwargs.get("h_referer")
         if not page_referer:
@@ -45,19 +45,28 @@ class StreamWishExtractor(BaseExtractor):
         html = iframe_response.text
 
         #
-        # 4. Try DIRECT extraction (Type-A pages)
+        # 4. Try DIRECT extraction first
         #
         final_url = self._extract_m3u8(html)
 
         #
-        # 5. Fallback: unpack packed JS (Type-B pages like guxhag)
+        # 5. Fallback: eval_solver (ONLY if packed)
         #
         if not final_url and "eval(function(p,a,c,k,e,d)" in html:
             try:
-                unpacked = unpack_js(html)
-                final_url = self._extract_m3u8(unpacked)
+                final_url = await eval_solver(
+                    self,
+                    iframe_url,
+                    {"Referer": referer},
+                    [
+                        # absolute URLs
+                        r'(https?://[^"\']+\.m3u8[^"\']*)',
+                        # relative /stream paths
+                        r'(\/stream\/[^"\']+\.m3u8[^"\']*)',
+                    ],
+                )
             except Exception:
-                pass
+                final_url = None  # NEVER crash
 
         #
         # 6. Validate
@@ -72,11 +81,12 @@ class StreamWishExtractor(BaseExtractor):
             final_url = urljoin(iframe_url, final_url)
 
         #
-        # 8. Set FINAL headers
+        # 8. Set final headers
         #
+        origin = f"{urlparse(referer).scheme}://{urlparse(referer).netloc}"
         self.base_headers.update({
             "Referer": referer,
-            "Origin": referer.rstrip("/"),
+            "Origin": origin,
         })
 
         return {
@@ -87,7 +97,5 @@ class StreamWishExtractor(BaseExtractor):
 
     @staticmethod
     def _extract_m3u8(text: str) -> str | None:
-        m = re.search(
-            r'https?://[^"\']+\.m3u8[^"\']*', text
-        )
+        m = re.search(r'https?://[^"\']+\.m3u8[^"\']*', text)
         return m.group(0) if m else None
