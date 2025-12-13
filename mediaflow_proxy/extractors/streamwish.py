@@ -17,7 +17,7 @@ class StreamWishExtractor(BaseExtractor):
         response = await self._make_request(url)
 
         #
-        # 2. Find iframe (if present)
+        # 2. Find iframe
         #
         iframe_match = re.search(
             r'<iframe[^>]+src=["\']([^"\']+)["\']',
@@ -35,12 +35,10 @@ class StreamWishExtractor(BaseExtractor):
         html = iframe_response.text
 
         #
-        # 4. Try direct JS extraction (MAIN METHOD)
+        # 4. Direct JS extraction (PRIMARY)
         #
         patterns = [
-            # sources: [{ file: "https://...m3u8" }]
             r'sources:\s*\[\s*\{\s*file:\s*["\'](?P<url>https?://[^"\']+\.m3u8[^"\']*)',
-            # links = { "hls2": "https://...m3u8" }
             r'links\s*=\s*\{[^}]+hls[24]"\s*:\s*"(?P<url>https?://[^"]+\.m3u8[^"]*)',
         ]
 
@@ -52,29 +50,35 @@ class StreamWishExtractor(BaseExtractor):
                 break
 
         #
-        # 5. Fallback: ONLY if page is packed JS
+        # 5. OPTIONAL fallback: packed JS (NON-FATAL)
         #
         if not final_url:
-            final_url = await eval_solver(
-                self,
-                iframe_url,
-                headers,
-                [
-                    r'"(\/stream\/[^"]+master\.m3u8[^"]*)"',
-                    r"'(\/stream\/[^']+master\.m3u8[^']*)'",
-                ],
-            )
+            try:
+                final_url = await eval_solver(
+                    self,
+                    iframe_url,
+                    headers,
+                    [
+                        r'"(\/stream\/[^"]+master\.m3u8[^"]*)"',
+                        r"'(\/stream\/[^']+master\.m3u8[^']*)'",
+                    ],
+                )
+            except Exception:
+                final_url = None  # DO NOT CRASH
 
+        #
+        # 6. Hard fail only if EVERYTHING failed
+        #
         if not final_url:
             raise ExtractorError("StreamWish: Failed to extract m3u8")
 
         #
-        # 6. Set referer correctly
+        # 7. Set referer
         #
         self.base_headers["Referer"] = url
 
         #
-        # 7. Output to MediaFlow
+        # 8. Output
         #
         return {
             "destination_url": final_url,
