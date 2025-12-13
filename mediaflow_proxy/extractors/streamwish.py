@@ -8,7 +8,7 @@ from mediaflow_proxy.utils.packed import eval_solver
 class StreamWishExtractor(BaseExtractor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.mediaflow_endpoint = "hls_manifest_proxy"  # same as FileMoon
+        self.mediaflow_endpoint = "hls_manifest_proxy"
 
     async def extract(self, url: str, **_kwargs: Any) -> Dict[str, Any]:
         #
@@ -17,7 +17,7 @@ class StreamWishExtractor(BaseExtractor):
         response = await self._make_request(url)
 
         #
-        # 2. Follow iframe (StreamWish always nests iframe OR direct eval)
+        # 2. Find iframe (if present)
         #
         iframe_match = re.search(
             r'<iframe[^>]+src=["\']([^"\']+)["\']',
@@ -25,42 +25,56 @@ class StreamWishExtractor(BaseExtractor):
             re.DOTALL
         )
 
-        if iframe_match:
-            iframe_url = iframe_match.group(1)
-        else:
-            # no iframe → treat embed itself as packed page
-            iframe_url = url
-
+        iframe_url = iframe_match.group(1) if iframe_match else url
         headers = {"Referer": url}
 
         #
-        # 3. Patterns to capture the real .m3u8
+        # 3. Load iframe page
+        #
+        iframe_response = await self._make_request(iframe_url, headers=headers)
+        html = iframe_response.text
+
+        #
+        # 4. Try direct JS extraction (MAIN METHOD)
         #
         patterns = [
-            r'"(\/stream\/[^"]+master\.m3u8[^"]*)"',  # main pattern
-            r"'(\/stream\/[^']+master\.m3u8[^']*)'",  # alternate
+            # sources: [{ file: "https://...m3u8" }]
+            r'sources:\s*\[\s*\{\s*file:\s*["\'](?P<url>https?://[^"\']+\.m3u8[^"\']*)',
+            # links = { "hls2": "https://...m3u8" }
+            r'links\s*=\s*\{[^}]+hls[24]"\s*:\s*"(?P<url>https?://[^"]+\.m3u8[^"]*)',
         ]
 
+        final_url = None
+        for pattern in patterns:
+            match = re.search(pattern, html, re.DOTALL)
+            if match:
+                final_url = match.group("url")
+                break
+
         #
-        # 4. Use MediaFlow eval solver (same as FileMoon)
+        # 5. Fallback: ONLY if page is packed JS
         #
-        final_url = await eval_solver(
-            self,
-            iframe_url,
-            headers,
-            patterns
-        )
+        if not final_url:
+            final_url = await eval_solver(
+                self,
+                iframe_url,
+                headers,
+                [
+                    r'"(\/stream\/[^"]+master\.m3u8[^"]*)"',
+                    r"'(\/stream\/[^']+master\.m3u8[^']*)'",
+                ],
+            )
 
         if not final_url:
-            raise ExtractorError("StreamWish: Failed to extract master m3u8")
+            raise ExtractorError("StreamWish: Failed to extract m3u8")
 
         #
-        # 5. Set referer correctly
+        # 6. Set referer correctly
         #
         self.base_headers["Referer"] = url
 
         #
-        # 6. Output to MediaFlow
+        # 7. Output to MediaFlow
         #
         return {
             "destination_url": final_url,
