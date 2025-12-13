@@ -1,8 +1,9 @@
 import re
 from typing import Dict, Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 from mediaflow_proxy.extractors.base import BaseExtractor, ExtractorError
+from mediaflow_proxy.utils.packed import unpack_js
 
 
 class StreamWishExtractor(BaseExtractor):
@@ -12,14 +13,18 @@ class StreamWishExtractor(BaseExtractor):
 
     async def extract(self, url: str, **kwargs: Any) -> Dict[str, Any]:
         #
-        # 0. Get external referer (ResolveURL $$ equivalent)
+        # 0. Correct referer (ResolveURL $$ equivalent)
         #
         page_referer = kwargs.get("h_referer")
+        if not page_referer:
+            raise ExtractorError("StreamWish: missing referer")
+
+        referer = page_referer.rstrip("/") + "/"
 
         #
         # 1. Load embed page
         #
-        response = await self._make_request(url)
+        response = await self._make_request(url, headers={"Referer": referer})
 
         #
         # 2. Find iframe
@@ -29,63 +34,60 @@ class StreamWishExtractor(BaseExtractor):
             response.text,
             re.DOTALL
         )
-
         iframe_url = iframe_match.group(1) if iframe_match else url
 
         #
-        # 3. Decide the REAL referer
+        # 3. Load iframe page
         #
-        if page_referer:
-            referer = urljoin(page_referer, "/")
-        else:
-            referer = iframe_url.split("/e/")[0] + "/"
-
-        headers = {"Referer": referer}
-
-        #
-        # 4. Load iframe page
-        #
-        iframe_response = await self._make_request(iframe_url, headers=headers)
+        iframe_response = await self._make_request(
+            iframe_url, headers={"Referer": referer}
+        )
         html = iframe_response.text
 
         #
-        # 5. Extract m3u8
+        # 4. Try DIRECT extraction (Type-A pages)
         #
-        patterns = [
-            r'sources:\s*\[\s*\{\s*file:\s*["\'](?P<url>https?://[^"\']+)',
-            r'sources:\s*\[\s*\{\s*file:\s*["\'](?P<url>/stream/[^"\']+)',
-            r'player\.src\(\s*["\'](?P<url>https?://[^"\']+)',
-            r'file:\s*["\'](?P<url>https?://[^"\']+)',
-        ]
+        final_url = self._extract_m3u8(html)
 
-        final_url = None
-        for pattern in patterns:
-            m = re.search(pattern, html, re.DOTALL)
-            if m:
-                final_url = m.group("url")
-                break
+        #
+        # 5. Fallback: unpack packed JS (Type-B pages like guxhag)
+        #
+        if not final_url and "eval(function(p,a,c,k,e,d)" in html:
+            try:
+                unpacked = unpack_js(html)
+                final_url = self._extract_m3u8(unpacked)
+            except Exception:
+                pass
 
-        if final_url and final_url.startswith("/"):
-            final_url = urljoin(iframe_url, final_url)
-
-        if not final_url or "m3u8" not in final_url:
+        #
+        # 6. Validate
+        #
+        if not final_url:
             raise ExtractorError("StreamWish: Failed to extract m3u8")
 
         #
-        # 6. Set FINAL headers (this is what MediaFlow outputs)
+        # 7. Resolve relative URLs
         #
-        origin = f"{urlparse(referer).scheme}://{urlparse(referer).netloc}"
+        if final_url.startswith("/"):
+            final_url = urljoin(iframe_url, final_url)
 
+        #
+        # 8. Set FINAL headers
+        #
         self.base_headers.update({
             "Referer": referer,
-            "Origin": origin,
+            "Origin": referer.rstrip("/"),
         })
 
-        #
-        # 7. Output
-        #
         return {
             "destination_url": final_url,
             "request_headers": self.base_headers,
             "mediaflow_endpoint": self.mediaflow_endpoint,
         }
+
+    @staticmethod
+    def _extract_m3u8(text: str) -> str | None:
+        m = re.search(
+            r'https?://[^"\']+\.m3u8[^"\']*', text
+        )
+        return m.group(0) if m else None
