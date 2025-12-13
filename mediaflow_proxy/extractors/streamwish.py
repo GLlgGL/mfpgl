@@ -13,21 +13,22 @@ class StreamWishExtractor(BaseExtractor):
 
     async def extract(self, url: str, **kwargs: Any) -> Dict[str, Any]:
         #
-        # 0. Require correct referer (ResolveURL $$ equivalent)
+        # 0. Get referer the MediaFlow way
         #
-        page_referer = kwargs.get("h_referer")
-        if not page_referer:
-            raise ExtractorError("StreamWish: missing referer")
+        referer = self.base_headers.get("Referer")
+        if not referer:
+            parsed = urlparse(url)
+            referer = f"{parsed.scheme}://{parsed.netloc}/"
 
-        referer = page_referer.rstrip("/") + "/"
+        headers = {"Referer": referer}
 
         #
         # 1. Load embed page
         #
-        response = await self._make_request(url, headers={"Referer": referer})
+        response = await self._make_request(url, headers=headers)
 
         #
-        # 2. Find iframe
+        # 2. Find iframe (if present)
         #
         iframe_match = re.search(
             r'<iframe[^>]+src=["\']([^"\']+)["\']',
@@ -40,33 +41,34 @@ class StreamWishExtractor(BaseExtractor):
         # 3. Load iframe page
         #
         iframe_response = await self._make_request(
-            iframe_url, headers={"Referer": referer}
+            iframe_url,
+            headers=headers
         )
         html = iframe_response.text
 
         #
-        # 4. Try DIRECT extraction first
+        # 4. Try direct m3u8 extraction (modern mirrors)
         #
         final_url = self._extract_m3u8(html)
 
         #
-        # 5. Fallback: eval_solver (ONLY if packed)
+        # 5. Fallback: packed JS → eval_solver (older mirrors like guxhag)
         #
         if not final_url and "eval(function(p,a,c,k,e,d)" in html:
             try:
                 final_url = await eval_solver(
                     self,
                     iframe_url,
-                    {"Referer": referer},
+                    headers,
                     [
-                        # absolute URLs
+                        # absolute m3u8
                         r'(https?://[^"\']+\.m3u8[^"\']*)',
-                        # relative /stream paths
+                        # relative stream paths
                         r'(\/stream\/[^"\']+\.m3u8[^"\']*)',
                     ],
                 )
             except Exception:
-                final_url = None  # NEVER crash
+                final_url = None
 
         #
         # 6. Validate
@@ -81,7 +83,7 @@ class StreamWishExtractor(BaseExtractor):
             final_url = urljoin(iframe_url, final_url)
 
         #
-        # 8. Set final headers
+        # 8. Set final headers (required by premilkyway CDN)
         #
         origin = f"{urlparse(referer).scheme}://{urlparse(referer).netloc}"
         self.base_headers.update({
@@ -89,6 +91,9 @@ class StreamWishExtractor(BaseExtractor):
             "Origin": origin,
         })
 
+        #
+        # 9. Return MediaFlow payload
+        #
         return {
             "destination_url": final_url,
             "request_headers": self.base_headers,
@@ -97,5 +102,11 @@ class StreamWishExtractor(BaseExtractor):
 
     @staticmethod
     def _extract_m3u8(text: str) -> str | None:
-        m = re.search(r'https?://[^"\']+\.m3u8[^"\']*', text)
-        return m.group(0) if m else None
+        """
+        Extract first absolute m3u8 URL from text
+        """
+        match = re.search(
+            r'https?://[^"\']+\.m3u8[^"\']*',
+            text
+        )
+        return match.group(0) if match else None
